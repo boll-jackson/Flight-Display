@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
+
+import os
+print("Current working dir:",os.getcwd())
+print("LIsting fonts dir:",os.listdir("/home/jacks/rpi-rgb-led-matrix/fonts"))
+
+#!/usr/bin/env python3
 import requests
 import math
 import time
 from datetime import datetime
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
-# Your location
+# Your location (Denver area example)
 MY_LAT = 39.755689061134724
 MY_LON = -104.99042412407124
 
-# API URL
+# API URL for bounding box (around your area)
 URL = "https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=39.87,39.69,-105.11,-104.8"
 
 # Setup matrix options
@@ -18,15 +24,17 @@ options.rows = 64
 options.cols = 64
 options.chain_length = 1
 options.parallel = 1
-options.hardware_mapping = 'adafruit-hat'  # change if needed
+options.hardware_mapping = 'adafruit-hat'  # adjust if you have different hardware
 
 matrix = RGBMatrix(options=options)
 canvas = matrix.CreateFrameCanvas()
 
+# Load font — update path if needed
 font = graphics.Font()
-font.LoadFont("../../../fonts/7x13.bdf")  # adjust path if needed
+font.LoadFont("/usr/local/share/fonts/rgbmatrix/7x13.bdf")
 textColor = graphics.Color(0, 255, 0)  # green text
 
+# Helper functions
 def calculate_bearing(lat1, lon1, lat2, lon2):
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlon = lon2 - lon1
@@ -39,11 +47,12 @@ def direction_arrow(bearing):
     return arrows[round(bearing / 45) % 8]
 
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0
+    R = 6371.0  # km
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    return R * 0.621371 * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * 0.621371 * c  # miles
 
 def infer_airline(callsign):
     callsign_map = {
@@ -84,8 +93,10 @@ def fetch_and_parse_aircraft():
             continue
         try:
             lat, lon = float(val[1]), float(val[2])
+            # Filter by bounding box (adjust to your area)
             if not (39.69 <= lat <= 39.96 and -105.11 <= lon <= -104.58):
                 continue
+            # Only include aircraft with known destination
             destination = val[13] if len(val) > 13 else None
             if not destination or destination == "Unknown":
                 continue
@@ -112,21 +123,33 @@ def main():
     while True:
         aircraft_list = fetch_and_parse_aircraft()
         canvas.Clear()
-        y = 0
 
         if not aircraft_list:
             graphics.DrawText(canvas, font, 1, 10, textColor, "No aircraft nearby")
         else:
-            for aircraft in aircraft_list[:3]:  # show up to 3 aircraft
-                dist = haversine(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
-                bearing = calculate_bearing(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
-                airline = infer_airline(aircraft["flight_number"])
-                txt = f"{airline} {aircraft['flight_number']} {int(dist)}mi {direction_arrow(bearing)}"
-                graphics.DrawText(canvas, font, 1, 10 + y, textColor, txt)
-                y += 15
+            # Just show the first aircraft only
+            aircraft = aircraft_list[0]
 
+            dist = haversine(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
+            bearing = calculate_bearing(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
+            airline = infer_airline(aircraft["flight_number"])
+
+            y = 10  # start y position
+
+            # Display lines of info for the plane
+            graphics.DrawText(canvas, font, 1, y, textColor, f"{airline} {aircraft['flight_number']}")
+            y += 15
+            graphics.DrawText(canvas, font, 1, y, textColor, f"From: {aircraft['origin']}")
+            y += 15
+            graphics.DrawText(canvas, font, 1, y, textColor, f"To: {aircraft['destination']}")
+            y += 15
+            graphics.DrawText(canvas, font, 1, y, textColor, f"Dist: {int(dist)} mi {direction_arrow(bearing)}")
+            y += 15
+            graphics.DrawText(canvas, font, 1, y, textColor, f"Alt: {aircraft['alt']} ft  Speed: {aircraft['speed']} knots")
+
+        # Swap canvas for display refresh
         canvas = matrix.SwapOnVSync(canvas)
-        time.sleep(10)
+        time.sleep(30)  # update every 10 seconds
 
 if __name__ == "__main__":
     main()
