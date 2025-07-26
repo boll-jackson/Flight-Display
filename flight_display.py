@@ -137,15 +137,8 @@ def main():
             y = 10  # start y position
 
             # Display lines of info for the plane
-            graphics.DrawText(canvas, font, 1, y, textColor, f"{airline} {aircraft['flight_number']}")
+            graphics.DrawText(canvas, font, 1, y, textColor, f"{aircraft['flight_number']}")
             y += 15
-            graphics.DrawText(canvas, font, 1, y, textColor, f"From: {aircraft['origin']}")
-            y += 15
-            graphics.DrawText(canvas, font, 1, y, textColor, f"To: {aircraft['destination']}")
-            y += 15
-            graphics.DrawText(canvas, font, 1, y, textColor, f"Dist: {int(dist)} mi {direction_arrow(bearing)}")
-            y += 15
-            graphics.DrawText(canvas, font, 1, y, textColor, f"Alt: {aircraft['alt']} ft  Speed: {aircraft['speed']} knots")
 
         # Swap canvas for display refresh
         canvas = matrix.SwapOnVSync(canvas)
