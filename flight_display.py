@@ -23,6 +23,7 @@ options = RGBMatrixOptions()
 options.rows = 64
 options.cols = 64
 options.chain_length = 1
+options.multiplexing=1
 options.parallel = 1
 options.hardware_mapping = 'adafruit-hat'  # adjust if you have different hardware
 
@@ -118,31 +119,29 @@ def fetch_and_parse_aircraft():
             continue
     return aircraft_list
 
+
 def main():
-    global canvas
+    offscreen_canvas = matrix.CreateFrameCanvas()
+
     while True:
         aircraft_list = fetch_and_parse_aircraft()
-        canvas.Clear()
+        offscreen_canvas.Clear()
 
         if not aircraft_list:
-            graphics.DrawText(canvas, font, 1, 10, textColor, "No aircraft nearby")
+            graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No aircraft nearby")
         else:
-            # Just show the first aircraft only
             aircraft = aircraft_list[0]
 
             dist = haversine(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
             bearing = calculate_bearing(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
             airline = infer_airline(aircraft["flight_number"])
 
-            y = 10  # start y position
+            # Always draw at same position
+            graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, f"{aircraft['flight_number']}")
 
-            # Display lines of info for the plane
-            graphics.DrawText(canvas, font, 1, y, textColor, f"{aircraft['flight_number']}")
-            y += 15
-
-        # Swap canvas for display refresh
-        canvas = matrix.SwapOnVSync(canvas)
-        time.sleep(30)  # update every 10 seconds
+        # Swap canvas for clean refresh
+        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+        time.sleep(30)
 
 if __name__ == "__main__":
     main()
