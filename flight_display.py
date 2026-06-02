@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 print("Current working dir:",os.getcwd())
 print("LIsting fonts dir:",os.listdir("/home/jacks/rpi-rgb-led-matrix/fonts"))
@@ -10,6 +9,7 @@ import math
 import time
 from datetime import datetime
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+from PIL import Image
 
 # Your location (Denver area example)
 MY_LAT = 39.755689061134724
@@ -17,15 +17,24 @@ MY_LON = -104.99042412407124
 
 # API URL for bounding box (around your area)
 URL = "https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=39.87,39.69,-105.11,-104.8"
+LOGO_DIR = "/home/jacks/rpi-rgb-led-matrix/bindings/python/samples/flight-display/airline_logos_tool/airline_logos"
+print(f"[{datetime.now():%H:%M:%S}] LOGO_DIR = {LOGO_DIR}")
+
 
 # Setup matrix options
 options = RGBMatrixOptions()
 options.rows = 64
 options.cols = 64
-options.chain_length = 1
-options.multiplexing=1
+options.chain_length = 2
+options.multiplexing=0
 options.parallel = 1
 options.hardware_mapping = 'adafruit-hat'  # adjust if you have different hardware
+options.row_address_type = 0
+options.pwm_bits = 11
+options.pwm_lsb_nanoseconds = 130
+options.pixel_mapper_config = ""
+options.show_refresh_rate = 0
+options.disable_hardware_pulsing = True
 
 matrix = RGBMatrix(options=options)
 canvas = matrix.CreateFrameCanvas()
@@ -33,7 +42,7 @@ canvas = matrix.CreateFrameCanvas()
 # Load font — update path if needed
 font = graphics.Font()
 font.LoadFont("/usr/local/share/fonts/rgbmatrix/7x13.bdf")
-textColor = graphics.Color(0, 255, 0)  # green text
+textColor = graphics.Color(255, 255, 255)  # green text
 
 # Helper functions
 def calculate_bearing(lat1, lon1, lat2, lon2):
@@ -61,17 +70,43 @@ def infer_airline(callsign):
         "UA": "United",
         "AAL": "American",
         "DAL": "Delta",
+        "DL": "Delta",
         "FFT": "Frontier",
         "NKS": "Spirit",
         "JBU": "JetBlue",
         "ACA": "Air Canada",
         "AC": "Air Canada",
         "SKW": "SkyWest",
-        "UAL": "United"
+        "UAL": "United",
+        "WN": "Southwest",
+        "AA": "American",
+        "AC": "Air Canada",
+        "F9": "Frontier",
+        "BA": "British Airways"
     }
     if not isinstance(callsign, str):
         return "Unknown"
     return next((name for prefix, name in callsign_map.items() if callsign.startswith(prefix)), "Unknown")
+
+
+def load_logo(iata_code):
+    """
+    Return a 32×32 PIL Image for the given IATA code.
+    If missing → solid magenta square (easy to spot).
+    """
+    path = os.path.join(LOGO_DIR, f"{iata_code.upper()}.bmp")
+    if os.path.isfile(path):
+        try:
+            img = Image.open(path).convert("RGB")
+            return img.resize((32, 32), Image.LANCZOS)
+        except Exception as ed:
+            print(f"Warning: Could not load {path}: {ed}")
+    # ---- fallback
+    fallback = Image.new("RGB", (32, 32), (0, 0, 0))
+    return fallback
+
+
+
 
 def fetch_and_parse_aircraft():
     try:
@@ -123,26 +158,65 @@ def fetch_and_parse_aircraft():
 def main():
     offscreen_canvas = matrix.CreateFrameCanvas()
 
+
     while True:
+      try:
         aircraft_list = fetch_and_parse_aircraft()
         offscreen_canvas.Clear()
 
         if not aircraft_list:
-            graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No aircraft nearby")
+            graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No Aircraft ")
+            graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, "In Area")
+            graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, ":(")
+            graphics.DrawText(offscreen_canvas, font, 1, 40, textColor,"aa")
         else:
             aircraft = aircraft_list[0]
-
+            altitude = aircraft["alt"]
+            speed = aircraft["speed"]
             dist = haversine(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
             bearing = calculate_bearing(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
             airline = infer_airline(aircraft["flight_number"])
 
+# ----- EXTRACT IATA CODE FROM FLIGHT NUMBER -----
+            flight_num = aircraft["flight_number"]
+            iata = "".join([c for c in flight_num if c.isalpha()])[:2].upper()
+            if len(iata) != 2:
+                iata = "XX"      # fallback
+
+            # ----- LOAD LOGO -----
+            logo_img = load_logo(iata)
+
+            # ----- DRAW LOGO (top-left) -----
+            # Convert PIL → matrix format and draw
+            for y in range(32):
+                for x in range(32):
+                    r, g, b = logo_img.getpixel((x, y))
+                    offscreen_canvas.SetPixel(96 + x, y, r, g, b)
+
+            # ----- DRAW TEXT NEXT TO LOGO -----
+            # Flight number
+
+
+            origin = aircraft["origin"]
+            destination = aircraft["destination"]
+            plane_type=aircraft["aircraft_type"]
             # Always draw at same position
             graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, f"{aircraft['flight_number']}")
-
+            graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"From: {origin}")
+            graphics.DrawText(offscreen_canvas, font, 1 ,30, textColor, f"To: {destination}")
+            graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"{airline} {plane_type}")
+            graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, f"{dist:.1f} mi {direction_arrow(bearing)}")
+            graphics.DrawText(offscreen_canvas, font, 1, 60, textColor, f"Alt:{altitude} Spd:{speed}kn")
         # Swap canvas for clean refresh
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+
         time.sleep(30)
 
+      except Exception as ef:
+        print(f"ERROR: {ef} – restarting in 10 sec...")
+        time.sleep(10)  # ← crash = wait 10s, then retry
+        continue  # go back to top of loop
 if __name__ == "__main__":
     main()
+
 
