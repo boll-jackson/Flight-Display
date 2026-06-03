@@ -227,8 +227,8 @@ def main():
             plane_type=aircraft["aircraft_type"]
             # Always draw at same position
             graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, f"{aircraft['flight_number']}")
-            graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"From: {origin}")
-            graphics.DrawText(offscreen_canvas, font, 1 ,30, textColor, f"To: {destination}")
+            graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"{origin}-{destination}")
+            graphics.DrawText(offscreen_canvas, font, 1 ,30, textColor, f"To:")
             graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"{airline} {plane_type}")
             graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, f"{dist:.1f} mi {direction_arrow(bearing)}")
             graphics.DrawText(offscreen_canvas, font, 1, 60, textColor, f"Alt:{altitude} Spd:{speed}")
