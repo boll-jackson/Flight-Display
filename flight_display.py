@@ -206,7 +206,7 @@ def main():
             graphics.DrawText(offscreen_canvas, font, 1 ,30, textColor, f"To: {destination}")
             graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"{airline} {plane_type}")
             graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, f"{dist:.1f} mi {direction_arrow(bearing)}")
-            graphics.DrawText(offscreen_canvas, font, 1, 60, textColor, f"Alt:{altitude} Spd:{speed}kn")
+            graphics.DrawText(offscreen_canvas, font, 1, 60, textColor, f"Alt:{altitude} Spd:{speed}")
         # Swap canvas for clean refresh
         offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
