@@ -83,7 +83,8 @@ def infer_airline(callsign):
         "AA": "American",
         "AC": "Air Canada",
         "F9": "Frontier",
-        "BA": "British Airways"
+        "BA": "British",
+        "B6": "Jetblue"
     }
     if not isinstance(callsign, str):
         return "Unknown"
