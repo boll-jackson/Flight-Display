@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import urllib.request, json
 print("Current working dir:",os.getcwd())
 print("LIsting fonts dir:",os.listdir("/home/jacks/rpi-rgb-led-matrix/fonts"))
 
@@ -154,6 +155,20 @@ def fetch_and_parse_aircraft():
             continue
     return aircraft_list
 
+def fetch_weather():
+    try:
+        url = "https://wttr.in/Denver?format=j1"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read())
+        current = data["current_condition"][0]
+        temp_f = current["temp_F"]
+        desc = current["weatherDesc"][0]["value"]
+        humidity = current["humidity"]
+        feels = current["FeelsLikeF"]
+        return temp_f, desc, humidity, feels
+    except Exception as e:
+        print(f"Weather fetch error: {e}")
+        return None, None, None, None
 
 def main():
     offscreen_canvas = matrix.CreateFrameCanvas()
@@ -165,10 +180,19 @@ def main():
         offscreen_canvas.Clear()
 
         if not aircraft_list:
-            graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No Aircraft ")
-            graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, "In Area")
-            graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, ":(")
-            graphics.DrawText(offscreen_canvas, font, 1, 40, textColor,"aa")
+            temp_f, desc, humidity, feels = fetch_weather()
+            offscreen_canvas.Clear()
+            if temp_f:
+                graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "Denver, CO")
+                graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"{temp_f}F  {desc}")
+                graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, f"Feels: {feels}F")
+                graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"Humidity: {humidity}%")
+                graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, "No planes nearby")
+            else:
+                graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No planes")
+                graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, "No weather")
+                graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, "¯\_(ツ)_/¯")
+
         else:
             aircraft = aircraft_list[0]
             altitude = aircraft["alt"]
