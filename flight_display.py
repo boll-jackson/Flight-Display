@@ -21,6 +21,9 @@ URL = "https://data-cloud.flightradar24.com/zones/fcgi/feed.js?bounds=39.87,39.6
 LOGO_DIR = "/home/jacks/rpi-rgb-led-matrix/bindings/python/samples/flight-display/airline_logos_tool/airline_logos"
 print(f"[{datetime.now():%H:%M:%S}] LOGO_DIR = {LOGO_DIR}")
 
+CYCLE_INTERVAL = 5    # seconds per plane when multiple are present
+FETCH_INTERVAL = 30   # seconds before re-fetching from the API
+
 
 # Setup matrix options
 options = RGBMatrixOptions()
@@ -81,7 +84,6 @@ def infer_airline(callsign):
         "UAL": "United",
         "WN": "Southwest",
         "AA": "American",
-        "AC": "Air Canada",
         "F9": "Frontier",
         "BA": "British",
         "B6": "Jetblue"
@@ -94,7 +96,7 @@ def infer_airline(callsign):
 def load_logo(iata_code):
     """
     Return a 32×32 PIL Image for the given IATA code.
-    If missing → solid magenta square (easy to spot).
+    If missing → solid black square fallback.
     """
     path = os.path.join(LOGO_DIR, f"{iata_code.upper()}.bmp")
     if os.path.isfile(path):
@@ -103,11 +105,8 @@ def load_logo(iata_code):
             return img.resize((32, 32), Image.LANCZOS)
         except Exception as ed:
             print(f"Warning: Could not load {path}: {ed}")
-    # ---- fallback
     fallback = Image.new("RGB", (32, 32), (0, 0, 0))
     return fallback
-
-
 
 
 def fetch_and_parse_aircraft():
@@ -131,10 +130,8 @@ def fetch_and_parse_aircraft():
             continue
         try:
             lat, lon = float(val[1]), float(val[2])
-            # Filter by bounding box (adjust to your area)
             if not (39.69 <= lat <= 39.96 and -105.11 <= lon <= -104.58):
                 continue
-            # Only include aircraft with known destination
             destination = val[13] if len(val) > 13 else None
             if not destination or destination == "Unknown":
                 continue
@@ -171,77 +168,93 @@ def fetch_weather():
         print(f"Weather fetch error: {e}")
         return None, None, None, None
 
+def draw_aircraft(offscreen_canvas, aircraft, index, total):
+    """Draw a single aircraft's info onto the canvas."""
+    altitude = aircraft["alt"]
+    speed = aircraft["speed"]
+    dist = haversine(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
+    bearing = calculate_bearing(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
+    airline = infer_airline(aircraft["flight_number"])
+
+    flight_num = aircraft["flight_number"]
+    iata = "".join([c for c in flight_num if c.isalpha()])[:2].upper()
+    if len(iata) != 2:
+        iata = "XX"
+
+    logo_img = load_logo(iata)
+
+    # Draw logo (top-right panel)
+    for y in range(32):
+        for x in range(32):
+            r, g, b = logo_img.getpixel((x, y))
+            offscreen_canvas.SetPixel(96 + x, y, r, g, b)
+
+    origin = aircraft["origin"]
+    destination = aircraft["destination"]
+    plane_type = aircraft["aircraft_type"]
+
+    # Counter badge e.g. "1/3" shown before flight number
+    counter = f"{index + 1}/{total}"
+
+    graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, f"{counter} {flight_num}")
+    graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"{origin}-{destination}")
+    graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, f"To:")
+    graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"{airline} {plane_type}")
+    graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, f"{dist:.1f} mi {direction_arrow(bearing)}")
+    graphics.DrawText(offscreen_canvas, font, 1, 60, textColor, f"Alt:{altitude} Spd:{speed}")
+
 def main():
     offscreen_canvas = matrix.CreateFrameCanvas()
 
+    aircraft_list = []
+    last_fetch = 0       # force immediate fetch on first iteration
+    plane_index = 0      # which plane we're currently showing
 
     while True:
-      try:
-        aircraft_list = fetch_and_parse_aircraft()
-        offscreen_canvas.Clear()
+        try:
+            now = time.time()
 
-        if not aircraft_list:
-            temp_f, desc, humidity, feels = fetch_weather()
+            # Re-fetch from API on first run and every FETCH_INTERVAL seconds
+            if now - last_fetch >= FETCH_INTERVAL:
+                aircraft_list = fetch_and_parse_aircraft()
+                last_fetch = time.time()
+                plane_index = 0  # reset to first plane after a fresh fetch
+
             offscreen_canvas.Clear()
-            if temp_f:
-                graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "Denver, CO")
-                graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"{temp_f}F  {desc}")
-                graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, f"Feels: {feels}F")
-                graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"Humidity: {humidity}%")
-                graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, "No planes nearby")
+
+            if not aircraft_list:
+                temp_f, desc, humidity, feels = fetch_weather()
+                if temp_f:
+                    graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "Denver, CO")
+                    graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"{temp_f}F  {desc}")
+                    graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, f"Feels: {feels}F")
+                    graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"Humidity: {humidity}%")
+                    graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, "No planes nearby")
+                else:
+                    graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No planes")
+                    graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, "No weather")
+                    graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, "¯\_(ツ)_/¯")
+
+                offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
+                time.sleep(CYCLE_INTERVAL)
+
             else:
-                graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, "No planes")
-                graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, "No weather")
-                graphics.DrawText(offscreen_canvas, font, 1, 30, textColor, "¯\_(ツ)_/¯")
+                total = len(aircraft_list)
+                # Clamp index in case list shrank after a re-fetch
+                plane_index = plane_index % total
 
-        else:
-            aircraft = aircraft_list[0]
-            altitude = aircraft["alt"]
-            speed = aircraft["speed"]
-            dist = haversine(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
-            bearing = calculate_bearing(MY_LAT, MY_LON, aircraft["lat"], aircraft["lon"])
-            airline = infer_airline(aircraft["flight_number"])
+                draw_aircraft(offscreen_canvas, aircraft_list[plane_index], plane_index, total)
+                offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
 
-# ----- EXTRACT IATA CODE FROM FLIGHT NUMBER -----
-            flight_num = aircraft["flight_number"]
-            iata = "".join([c for c in flight_num if c.isalpha()])[:2].upper()
-            if len(iata) != 2:
-                iata = "XX"      # fallback
+                # Advance to next plane
+                plane_index = (plane_index + 1) % total
+                time.sleep(CYCLE_INTERVAL)
 
-            # ----- LOAD LOGO -----
-            logo_img = load_logo(iata)
+        except Exception as ef:
+            print(f"ERROR: {ef} – restarting in 10 sec...")
+            time.sleep(10)
+            continue
 
-            # ----- DRAW LOGO (top-left) -----
-            # Convert PIL → matrix format and draw
-            for y in range(32):
-                for x in range(32):
-                    r, g, b = logo_img.getpixel((x, y))
-                    offscreen_canvas.SetPixel(96 + x, y, r, g, b)
-
-            # ----- DRAW TEXT NEXT TO LOGO -----
-            # Flight number
-
-
-            origin = aircraft["origin"]
-            destination = aircraft["destination"]
-            plane_type=aircraft["aircraft_type"]
-            # Always draw at same position
-            graphics.DrawText(offscreen_canvas, font, 1, 10, textColor, f"{aircraft['flight_number']}")
-            graphics.DrawText(offscreen_canvas, font, 1, 20, textColor, f"{origin}-{destination}")
-            graphics.DrawText(offscreen_canvas, font, 1 ,30, textColor, f"To:")
-            graphics.DrawText(offscreen_canvas, font, 1, 40, textColor, f"{airline} {plane_type}")
-            graphics.DrawText(offscreen_canvas, font, 1, 50, textColor, f"{dist:.1f} mi {direction_arrow(bearing)}")
-            graphics.DrawText(offscreen_canvas, font, 1, 60, textColor, f"Alt:{altitude} Spd:{speed}")
-        # Swap canvas for clean refresh
-        offscreen_canvas = matrix.SwapOnVSync(offscreen_canvas)
-
-        time.sleep(30)
-
-      except Exception as ef:
-        print(f"ERROR: {ef} – restarting in 10 sec...")
-        time.sleep(10)  # ← crash = wait 10s, then retry
-        continue  # go back to top of loop
 if __name__ == "__main__":
     main()
-
 
